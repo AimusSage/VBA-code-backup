@@ -1,0 +1,42 @@
+Attribute VB_Name = "Declarations"
+Option Compare Database
+Option Explicit
+
+Public weekNr As Variant
+Public MFEDate As Date, endDate As Date, startDate As Date, tDate As Date
+Public db As DAO.Database, fd As FileDialog, td As TableDef, rs As DAO.Recordset, qt As DAO.QueryDef
+Public fileName As String, fileNew As String, tblName As String, tblNew As String, frmName As String, cancelMsg As String
+Public backendFilePath As String, Qstr As String
+Public bedb As DAO.Database
+Public xl As Excel.Application, xlbook As Excel.Workbook, xlsheet As Excel.Worksheet
+Public sMeterTest As Boolean, frm As Form
+Public frmWait As Boolean
+Public stoCollection As Collection
+Public response As Integer
+
+Public Declare Function sndPlaySound32 _
+    Lib "winmm.dll" _
+    Alias "sndPlaySoundA" ( _
+        ByVal lpszSoundName As String, _
+        ByVal uFlags As Long) As Long
+
+Declare Function apiCopyFile Lib "kernel32" Alias "CopyFileA" _
+      (ByVal lpExistingFileName As String, _
+      ByVal lpNewFileName As String, _
+      ByVal bFailIfExists As Long) As Long
+
+Public Const gEnableErrorHandling As Boolean = False
+Public Const frmDep = "Deploymenttool"
+Public Const frmSto = "Storingentool"
+
+'   Information related to tool development and support
+Public Const sTName = "Deployment Tool Slimme Data"
+Public Const sVersion = "0.08_dev"
+Public Const sDate = "18-05-2016"
+Public Const sDev = "Jeroen Bekker"
+Public Const sContact = "Jeroen.Bekker@stedin.net"
+Public sTool As String
+Public sTversion As String
+
+
+

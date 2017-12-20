@@ -1,0 +1,40 @@
+Option Compare Database
+
+Sub test()
+
+Dim db As DAO.Database
+Dim rs As DAO.Recordset
+Dim eanAnon As String
+Dim strArray As Variant
+
+Set db = CurrentDb()
+Set rs = db.OpenRecordset("eanTestList")
+
+strArray = Array("2", "0", "9", "8", "4", "3", "1", "7", "6", "5")
+Do Until rs.EOF
+
+    eanAnon = rs("eanCode").Value
+    eanAnon = Right(eanAnon, 9) & Left(eanAnon, 9)
+    eanAnon = StrReverse(eanAnon)
+    For i = 1 To Len(eanAnon)
+        eanAnon = Left(eanAnon, i - 1) & Replace(eanAnon, CStr(Mid(eanAnon, i, 1)), strArray(Mid(eanAnon, i, 1)), i, 1)
+    Next
+
+    For i = 1 To Len(eanAnon)
+    If i Mod 2 = 0 Then
+        eanAnon = Mid(eanAnon, 3, Len(eanAnon)) & Left(eanAnon, 2)
+    Else
+        eanAnon = Right(eanAnon, 3) & Mid(eanAnon, 4, Len(eanAnon) - 6) & Left(eanAnon, 3)
+    End If
+    Next
+    eanAnon = eanAnon + (eanAnon * 2)
+    eanAnon = eanAnon / 2
+    rs.Edit
+    rs("eanCodeAnon").Value = eanAnon
+    rs.Update
+    rs.MoveNext
+Loop
+rs.Close
+
+End Sub
+

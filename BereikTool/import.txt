@@ -1,0 +1,25 @@
+Attribute VB_Name = "import"
+Option Compare Database
+
+Sub ImportData()
+
+Dim importTbl As String
+Dim tblName As String
+Dim dateField As String
+Dim dateFieldDest As String
+tblName = "storingenCount"
+importTbl = "25Juli_5Aug"
+
+Set db = CurrentDb()
+Set td = db.TableDefs(importTbl)
+Set td2 = db.TableDefs(tblName)
+For i = 1 To td.Fields.Count - 1
+
+    If IsNumeric(Left(td.Fields(i).Name, 1)) Then dateField = Format(td.Fields(i).Name, "dd-mm-yyyy")
+    If fieldExists(tblName, dateField) = False Then td2.Fields.Append td2.CreateField(dateField, dbDate)
+
+    SQL = "UPDATE [" & tblName & "] as t1 INNER JOIN [" & importTbl & "] as t2 ON t1.meternummer = t2.[equipmentId] SET t1.[" & dateField & "] = t2.[" & td.Fields(i).Name & "] WHERE t1.[" & dateField & "] is null"
+        db.Execute SQL
+        Debug.Print dateField & " nTal " & db.RecordsAffected
+Next
+End Sub

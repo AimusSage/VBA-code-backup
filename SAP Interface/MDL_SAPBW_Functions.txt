@@ -1,0 +1,88 @@
+Attribute VB_Name = "MDL_SAPBW_Functions"
+Option Explicit
+
+'Opstarten van de Analysis invoegtoepassing
+Public Function Init_AO_API() As Boolean
+    Dim retval As Boolean
+    On Error GoTo myErrorMsg
+    
+    Dim cAddIn As COMAddIn
+    Dim oAPIObject As Object
+    Dim vResult As Variant
+    
+    retval = False
+    
+    For Each cAddIn In Application.COMAddIns
+        ' Debug.Print cAddIn.progID
+        ' SapExcelAddIn
+        If cAddIn.progID = "SapExcelAddIn" Then
+        ' If cAddIn.progID = "SBOP.AdvancedAnalysis.Addin.1" Then
+            If cAddIn.Connect = False Then
+                cAddIn.Connect = True
+            End If
+            Exit For
+        End If
+    Next cAddIn
+    
+'     Set cAddIn = Application.COMAddIns("SBOP.AdvancedAnalysis.Addin.1")
+    
+'     If cAddIn.Connect = False Then
+'         cAddIn.Connect = True
+'     End If
+    
+    Set oAPIObject = cAddIn.Object
+    ' Set oAPIObject = oAPIObject.GetApplication()
+    retval = True
+    
+EXIT_Init_AO_API:
+    Init_AO_API = retval
+    Exit Function
+myErrorMsg:
+    retval = False
+    Resume EXIT_Init_AO_API
+End Function
+
+Public Function Logon_SAP(Optional Username As String = "", Optional Password As String = "") As Boolean
+    Dim retval As Boolean
+    Dim lResult As Long
+    Dim sUserName As String
+    Dim sPassword As String
+    
+    On Error GoTo ERR_Logon_SAP
+    retval = False
+    
+    sUserName = Username
+    
+    If sUserName <> "" Then
+        
+        lResult = ActiveWorkbook.Application.Run("SAPLogon", "DS_1", "100", sUserName, sPassword, "NL")
+        ' lResult = ActiveWorkbook.Application.Run("SAPLogon", "DS_1", "100")
+        If lResult = 1 Then retval = True
+    End If
+    
+EXIT_Logon_SAP:
+    Logon_SAP = retval
+Exit Function
+ERR_Logon_SAP:
+    retval = False
+    Resume EXIT_Logon_SAP
+End Function
+
+Public Function RefreshQueries(Optional sQueryFormulaAlias As String = "ALL") As Boolean
+    Dim retval As Boolean
+    Dim lResult As Long
+    
+    On Error GoTo ERR_RefreshQueries
+    retval = False
+        
+    lResult = Application.Run("SAPExecuteCommand", "Refresh", sQueryFormulaAlias)
+    If lResult = 1 Then retval = True
+    
+EXIT_RefreshQueries:
+    RefreshQueries = retval
+    Exit Function
+ERR_RefreshQueries:
+    retval = False
+    Resume EXIT_RefreshQueries
+End Function
+

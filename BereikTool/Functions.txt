@@ -1,0 +1,834 @@
+Attribute VB_Name = "Functions"
+'   ========================================================================================================================
+'   SUPPORT FUNCTIONS FOR SCRIPTING MODULES
+'   ========================================================================================================================
+
+Option Compare Database
+
+
+
+Function feedbackWK()
+'   ============================================================
+'   Feedback function to enable weeknumber selection
+'   this function copies the working file into a new
+'   table with corresponding weeknumber for the feedback
+'   ============================================================
+
+If gEnableErrorHandling Then On Error GoTo Feedbackwk_Err
+
+'dim weeknr as variant
+weekNr = InputBox("Vul het weeknummer van de feedback in (twee cijfers, bv. 01 of 22)[##]", , Format(Date, "ww"))
+
+DoCmd.CopyObject "", "Feedback_wk" & weekNr, acTable, "Feedback_temp"
+
+Feedbackwk_Exit:
+    Exit Function
+
+Feedbackwk_Err:
+    MsgBox Error$
+    Resume Feedbackwk_Exit
+
+End Function
+
+
+Function selectFileMFE(strfrm As String, specs As String)
+'   ============================================================
+'   Allows the import of MFE Stats dump using file selection
+'   window. Add and additional field with the date of the
+'   MFE stats dump. Empties the MFE Stats using a db query
+'   and creates a temporary table for the import
+'   This code requires The Microsoft Office 14.0
+'   (or current version)
+'   ============================================================
+If gEnableErrorHandling Then On Error GoTo errorHandler
+
+Set fd = Application.FileDialog(msoFileDialogFilePicker)
+With fd
+    .AllowMultiSelect = False
+    .Title = "Selecteer MFE Statistieken"
+    .InitialFileName = "S:\Stedin\Diensten\SMB\Operations KVB\Datacollectie\Uitvalbakken\07.Deployment TD Proces\01. Splunk\"
+    .Filters.Clear
+    .Filters.Add "Text files", "*.csv"
+End With
+
+If fd.Show = True Then
+    If fd.SelectedItems(1) <> vbNullString Then
+        fileNameMFE = fd.SelectedItems(1)
+        Call deleteTable("temp")
+        DoCmd.Hourglass True
+            
+            DoCmd.TransferText acImportDelim, specs, "temp", fileNameMFE, False     'Creates table temp for importing the csv
+            
+SysCmd acSysCmdSetStatus, "Clear Previous MFE METER data"
+        Call deleteTable("tmpMFE")
+        DoCmd.TransferDatabase acImport, "Microsoft Access", CurrentProject.FullName, acTable, "MFE STATS", "tmpMFE", True
+'        SQL = "SELECT * INTO tmpMFE FROM [MFE STATS] WHERE 1=2"
+'            CurrentDb.Execute SQL
+        DoCmd.DeleteObject acTable, "MFE STATS"
+        DoCmd.Rename "MFE STATS", acTable, "tmpMFE"
+        
+    '   SQL = "DELETE * FROM [MFE STATS]"                                       'Empties target table
+    '       CurrentDb.Execute SQL
+        
+SysCmd acSysCmdSetStatus, "Insert New MFE METER Data"
+        SQL = "INSERT INTO [MFE STATS] SELECT [temp].* FROM [temp];"
+            CurrentDb.Execute SQL                                               'Inserts new data into target table
+                
+        DoCmd.DeleteObject acTable, "temp"                                      'Deletes temporary table
+                   
+SysCmd acSysCmdSetStatus, "Check and correct possible SPLUNK Data Errors"
+        SQL = "UPDATE [MFE STATS] SET [E-meternummer] = trim([E-meternummer]), [G-meternummer] = trim([G-meternummer])"
+            CurrentDb.Execute SQL                                               'Cleans up the meternumber fields in MFE to eliminate white spaces
+            
+        SQL = "UPDATE [MFE STATS] SET [mfe plaatsnaam]= left([mfe plaatsnaam],instr([mfe plaatsnaam],"" deploy"")) "
+        SQL = SQL & " WHERE instr([mfe plaatsnaam],"" deploy"")>0 "
+            CurrentDb.Execute SQL
+    End If
+Else
+    'Exit code if no file is selected
+cancelMsg = "Er is geen MFE bestand geselecteerd, handeling afgebroken"
+Call cancelAction(strfrm)
+    Exit Function
+End If
+ 
+SysCmd acSysCmdClearStatus
+
+Set fd = Nothing
+
+    Exit Function
+
+errorHandler:
+Set fd = Nothing
+Call globalErrHandler(strfrm)
+
+End Function
+
+
+Function setPrimaryKey(strfrm As String, strTableName As String, strFieldName As String)
+'   ============================================================
+'   Allows changing the primary key of a table, based on user
+'   input.
+'   Replaces any pre exisiting primary keys in a given table
+'   ============================================================
+If gEnableErrorHandling Then On Error GoTo errorHandler
+Dim td As DAO.TableDef
+Call closeAllObjects
+Set db = CurrentDb()
+Set td = db.TableDefs(strTableName)
+
+'   Removes pre-existing primary keys
+Dim idx As Index
+For Each idx In td.Indexes
+    If idx.Primary Then
+        td.Indexes.Delete idx.Name
+        Exit For
+    End If
+Next
+On Error Resume Next
+
+td.Indexes.Delete strFieldName
+'   Creates a new primary key
+With td
+    Set idx = .CreateIndex(strFieldName)
+    idx.Fields.Append idx.CreateField(strFieldName)
+    idx.Primary = True
+    .Indexes.Append idx
+End With
+
+'   Error trapping
+If Err.Number = 3058 Then
+    cancelMsg = "Controleer het veld voor de nieuwe primary key op nul waardes"
+    Err.Clear
+    Call cancelAction(strfrm)
+ElseIf Err.Number = 3022 Then
+    cancelMsg = "Controleer het veld voor de nieuwe primary key op duplicates waardes"
+    Err.Clear
+    Call cancelAction(strfrm)
+End If
+If gEnalbeErrorHandling Then On Error GoTo errorHandler
+
+ExitF:
+    Call closeAllObjects
+    Set td = Nothing
+    Set idx = Nothing
+    Exit Function
+
+errorHandler:
+MsgBox "error " & Err.Number & ": " & Err.Description & " in " & vbCrLf & VBE.ActiveCodePane.CodeModule, vbOKOnly, "Error"
+GoTo ExitF
+
+End Function
+
+Function dropPrimaryKey(strTableName As String)
+'   ============================================================
+'   Removes any existing primary keys from a given table
+'   ============================================================
+If gEnableErrorHandling Then On Error GoTo errorHandler
+
+Set db = CurrentDb()
+Set td = db.TableDefs(strTableName)
+
+Dim idx As Index
+For Each idx In td.Indexes
+    If idx.Primary Then
+        td.Indexes.Delete idx.Name
+        Exit For
+    End If
+Next
+
+ExitF:
+Set td = Nothing
+Set idx = Nothing
+Exit Function
+
+errorHandler:
+MsgBox "error " & Err.Number & ": " & Err.Description & " in " & vbCrLf & VBE.ActiveCodePane.CodeModule, vbOKOnly, "Error"
+GoTo ExitF
+
+End Function
+
+Function makeDir(MyPath As String)
+'   ============================================================
+'   Creates a directy based on a given path, checks if path
+'   already exists and only creates if not exists
+'   ============================================================
+Dim F As Integer
+On Error Resume Next
+
+If InStr(4, MyPath, "\") = 0 Then
+    MkDir (MyPath)
+Else
+    If Right(MyPath, 1) <> "\" Then MyPath = MyPath & "\"
+        For F = 4 To Len(MyPath)
+            If Mid(MyPath, F, 1) = "\" Then
+                MkDir Left(MyPath, F)
+            End If
+        Next F
+End If
+End Function
+
+Public Function IsExcelRunning() As Boolean
+'   ============================================================
+'   Checks if Excel is running, and returns either true or false
+'   ============================================================
+Dim xl As Object
+
+On Error Resume Next
+
+Set xl = GetObject(, "Excel.Application")
+IsExcelRunning = (Err.Number = 0)
+
+Set xl = Nothing
+End Function
+
+Public Function compact(strfrm As String, stDataFile As String, backupDest As String) As Boolean
+'   ============================================================
+'   stDataFile is the full path of the file you wish to backup,
+'   include the filename, backupDest is the destionation of the
+'   backup)
+'   'This function will backup and compact the accdb file given
+'   by the stDataFile path.
+'   Manually backup and test debug it first!
+'   ============================================================
+
+If gEnableErrorHandling Then On Error GoTo errorHandler
+Dim stOutFile As String, stBackUpFile As String, vStatusBar As Variant, stBF1 As Variant, stBF2 As Variant
+
+If FileLen(stDataFile) > 1000000000 Then
+    If MsgBox("Het is aanbevolen een backup te maken van de database. Sluit MS Access niet af voordat dit voltooid is. Backup uitvoeren?", vbExclamation + vbYesNo) = vbYes Then GoTo mkBackup
+
+ElseIf FileLen(stDataFile) > 1600000000 Then
+    MsgBox "Het maken van een backup is noodzakelijk en kan niet worden afgebroken. Sluit MS Access niet af voordat dit voltooid is."
+    GoTo mkBackup
+End If
+
+compact = False
+Exit Function
+
+mkBackup:
+Application.SetOption "Show Status Bar", True
+vStatusBar = SysCmd(acSysCmdSetStatus, "Access maakt een backup van de database. Sluit het programma niet af voordat de handeling voltooid is!")
+If LCase(Right(stDataFile, 6)) <> ".accdb" Then
+    '-- Incomplete FileName string
+    compact = False                     '-- Set Failure code
+    vStatusBar = SysCmd(acSysCmdSetStatus, " ")
+    Exit Function
+End If
+
+stOutFile = Left$(stDataFile, Len(stDataFile) - 6) & ".TMP"
+
+DoCmd.SetWarnings False
+DoCmd.Hourglass True
+
+'Delete Temporary OutputFile if exists
+On Error Resume Next
+Kill stOutFile
+
+If gEnableErrorHandling Then On Error GoTo errorHandler
+'Compact
+DBEngine.CompactDatabase stDataFile, stOutFile, DB_LANG_GENERAL
+
+'Delete Uncompacted Version
+Kill stDataFile
+
+'Rename Compacted Version
+Name stOutFile As stDataFile
+
+compact = True
+
+'Delete Temporary OutputFile if exists
+On Error Resume Next
+Kill stOutFile
+
+'Backup
+If gEnableErrorHandling Then On Error GoTo errorHandler
+stBF1 = Split(stDataFile, "\")
+stBF2 = Split(stBF1(UBound(stBF1)), ".")
+ReDim Preserve stBF2(0)
+stBackUpFile = backupDest & Join(stBF2, ".") & "_" & Format(Date, "yyyy-mm-dd") & ".BAK"
+On Error Resume Next
+    Kill stBackUpFile
+If gEnableErrorHandling Then On Error GoTo errorHandler
+FileCopy stDataFile, stBackUpFile
+
+Exit_Function:
+    vStatusBar = SysCmd(acSysCmdSetStatus, " ")
+    DoCmd.SetWarnings True
+    DoCmd.Hourglass False
+    MsgBox "De backup is voltooid"
+    Exit Function
+
+errorHandler:
+    compact = False
+Call globalErrHandler(strfrm)
+    
+End Function
+
+Function weekSelect(strfrm As String, Optional ByRef ctr As Control) As Long
+'   ============================================================
+'   Function that returns a weeknumber based on user input.
+'   Allows updating a form field with the newly returned
+'   weeknumber, these are optional parameters.
+'   ============================================================
+If gEnableErrorHandling Then On Error GoTo errorHandler
+
+
+If weekNr <> "" Then
+    If MsgBox("Huidig weeknummer is: " & weekNr & ", aanpassen?", vbYesNo, "Weeknummer") = vbNo Then GoTo wkSelectExit
+End If
+weekNr = InputBox("Vul het weeknummer van de feedback in (twee cijfers, bv. 01 of 22)[##]", , Format(Format(Date, "ww", , vbFirstFourDays) - 1, "00"))
+    
+If Not IsNull(ctr) Then
+If weekNr <> "" Then
+        ctr.Caption = "Huidig weeknummer: " & weekNr
+    Else
+        ctr.Caption = "Geen weeknummer ingevoerd"
+    End If
+End If
+
+If weekNr = 0 Then
+    cancelMsg = "Handeling is afgebroken"
+    Call cancelAction(strfrm)
+End If
+
+If weekNr = "" Then
+    cancelMsg = "Geen waarde ingevoerd, handeling is afgebroken"
+    Call cancelAction(strfrm)
+End If
+
+
+weekSelect = weekNr
+wkSelectExit:
+Exit Function
+
+errorHandler:
+Call globalErrHandler(strfrm)
+
+End Function
+
+Public Function maandSelect(Optional ByRef ctr As Control) As Variant
+'   =====================================================================
+'   Public Function Maandselect()
+'   Functie waarmee de gekozen periode voor de analyse ingevoerd kan
+'   worden.
+'   =====================================================================
+If startmaand = "" Then
+    MsgBox "Geen actuele periode ingesteld, selecteer de startdatum van de te controleren periode"
+Else
+        If MsgBox("De huidige  maand is " & startmaand & ". Klopt dit?", vbYesNo) = vbYes Then GoTo noMaand
+End If
+periodeVaststellen:
+    startmaand = InputBox("Kies een datum in de gewenste maand", "Eerste dag maand", Format(DateSerial(Year(Date), Month(Date), 1), "mmmm yyyy"))
+    startmaand = Format(DateSerial(Year(startmaand), Month(startmaand), 1), "mmmm yyyy")
+    If startmaand = "" Then GoTo noMaand
+    If Not IsNull(ctr) Then
+        ctr.Caption = "Periode: " & Format(startmaand, "mmmm yyyy")
+    End If
+    If MsgBox("De geselecteerde maand is " & Format(startmaand, "mmmm yyyy") & ". Klopt dit?", vbYesNo) = vbNo Then
+        MsgBox "Voer waardes opnieuw in"
+        GoTo periodeVaststellen
+    End If
+    maandSelect = startmaand
+noMaand:
+
+End Function
+
+Public Function TableExists(ByVal tName) As Boolean
+'   =====================================================================
+'   Public Function tableExists(tdName) As Boolean
+'   Controleert of een tabel bestaat
+'   =====================================================================
+TableExists = False
+
+On Error GoTo nFalse
+If CurrentDb.TableDefs(tName).Name <> "" Then TableExists = True
+nFalse:
+
+End Function
+
+Public Function queryExists(ByVal qName) As Boolean
+'   =====================================================================
+'   Public Function QueryExists(qName) As Boolean
+'   Controleert of een Query bestaat and returns true or false
+'   =====================================================================
+queryExists = False
+Set db = CurrentDb()
+
+On Error GoTo nFalse
+If db.QueryDefs(qName).Name <> "" Then queryExists = True
+nFalse:
+
+End Function
+
+Public Function fieldExists(ByVal tName, ByVal fName) As Boolean
+'   =====================================================================
+'   Public Function FieldExists(ByVal tName, ByVal fName) As Boolean
+'   Controleert of een veld bestaat and returns true or false
+'   =====================================================================
+Dim nlen As Long
+FieldExist = False
+On Error GoTo nFalse
+    If CurrentDb.TableDefs(tName).Fields(fName).Name <> "" Then fieldExists = True
+    Exit Function
+nFalse:
+    
+End Function
+
+Public Function closeAllObjects(Optional strfrm As String)
+'   =====================================================================
+'   public Function closeAllObjects()
+'   Sluit alle tabellen en queries in de database, indien gewenst kan de
+'   functie worden uitgebreid om bijvoorbeeld ook formulieren en
+'   rapporten te sluiten. Het is ook mogelijk om aan te geven of de
+'   openstaande tabellen of queries wel of niet opgeslagen moeten worden.
+'   =====================================================================
+If gEnableErrorHandling Then On Error GoTo errorHandler
+
+Dim aob As AccessObject
+With CurrentData
+   ' "Tables"
+   For Each aob In .AllTables
+       If aob.IsLoaded Then
+           DoCmd.Close acTable, aob.Name, acSaveNo
+       End If
+   Next aob
+ 
+   ' "Queries"
+   For Each aob In .AllQueries
+       If aob.IsLoaded Then
+           DoCmd.Close acQuery, aob.Name, acSaveNo
+       End If
+   Next aob
+   
+''  Onderstaande code sluit ook alle openstaande formulieren
+''  "Forms"
+'   Do While Forms.Count > 0
+'       DoCmd.Close acForm, Forms(0).Name
+'   Loop
+
+''  Onderstaande code sluit ook alle openstaande rapporten
+''  "Reports"
+'   Do While Reports.Count > 0
+'       DoCmd.Close acReport, Reports(0).Name
+'   Loop
+
+End With
+
+errExit:
+    Exit Function
+errorHandler:
+    Call globalErrHandler(strfrm)
+
+
+End Function
+
+Function selectFile(strfrm As String, Optional initialPath As String)
+'   =====================================================================
+'   File Browse Code
+'   --------------------------------------------------
+'   NOTE: To use this code, you must reference
+'   The Microsoft Office 14.0 (or current version)
+'   Object Library by clicking menu Tools>References
+'   Check the box for:
+'   Microsoft Office 14.0 Object Library in Access 2010
+'   Microsoft Office 15.0 Object Library in Access 2013
+'   Click OK
+'   =====================================================================
+If gEnableErrorHandling Then On Error GoTo errorHandler
+ 
+Set fd = Application.FileDialog(msoFileDialogFilePicker)
+ 
+fd.AllowMultiSelect = False
+fd.Filters.Clear
+
+If Not IsNull(initialPath) Then
+    fd.InitialFileName = initalpath
+Else
+    fd.InitialFileName = ""
+End If
+
+If fd.Show = True Then
+    If fd.SelectedItems(1) <> vbNullString Then
+        fileName = fd.SelectedItems(1)
+    End If
+Else
+    'Exit code if no file is selected
+Call cancelAction(strfrm)
+    Exit Function
+End If
+ 
+'Return Selected FileName
+selectFile = fileName
+ 
+Set fd = Nothing
+ 
+Exit Function
+ 
+errorHandler:
+Set fd = Nothing
+Call globalErrHandler(strfrm)
+ 
+End Function
+
+
+
+Public Function deleteTable(tName As String)
+'   =====================================================================
+'   Public Function DeleteTable(tname As String)
+'   Deze functie loopt door alle tabellen in de database en verwijdert
+'   de te verwijderen tabel indien deze bestaat
+'   =====================================================================
+On Error Resume Next
+    Dim oTable As DAO.TableDef
+
+For Each oTable In CurrentDb.TableDefs
+    If oTable.Name Like tName Then
+        CurrentDb.TableDefs.Delete oTable.Name
+    End If
+Next oTable
+
+End Function
+
+
+Public Function deleteImportErrorTables()
+'   =====================================================================
+'   Public function deleteImportErrorTables()
+'   Functie om ervoor te zorgen dat de tabellen met importfouten niet
+'   bij elke importeeractie worden bewaard en zo de database onnodig in
+'   omvang laat toenemen.
+'   =====================================================================
+On Error Resume Next
+    Dim oTable As DAO.TableDef
+
+For Each oTable In CurrentDb.TableDefs
+    If oTable.Name Like "*ImportErrors*" Or oTable.Name Like "*importfouten*" Then
+    CurrentDb.TableDefs.Delete oTable.Name
+End If
+Next oTable
+
+Exit Function
+
+End Function
+
+
+Function createQuery(qName As String)
+'   =====================================================================
+'   Loops through all exisiting queries to see if already exists.
+'   Replaces the existing query and creates a new, blank query
+'   =====================================================================
+
+Dim qtemp As DAO.QueryDef
+Set db = CurrentDb()
+
+For Each qtemp In db.QueryDefs()
+    If qtemp.Name = qName Then
+        db.QueryDefs.Delete (qName)
+    End If
+Next
+
+Set qtemp = db.CreateQueryDef(qName)
+  
+Set qtemp = Nothing
+
+End Function
+
+Function deleteQuery(qName As String)
+'   =====================================================================
+'   Loops through all queries in a database and deletes if the parameter
+'   defined query is found.
+'   =====================================================================
+Dim qtemp As DAO.QueryDef
+
+For Each qtemp In CurrentDb.QueryDefs()
+    If qtemp.Name = qName Then
+        CurrentDb.QueryDefs.Delete (qName)
+    End If
+Next
+
+End Function
+
+Public Function GetODBCDSN()
+'   =====================================================================
+'   Public Function GetODBCDSN()
+'   Voorbeeld functie om gegevens uit het windows-registry te lezen
+'   =====================================================================
+Const HKEY_CURRENT_USER = &H80000001
+    Dim strComputer As String, strKeyPath As String
+    Dim objRegistry As Object, arrValueNames, arrValueTypes
+    strComputer = "."
+    strKeyPath = "Software\ODBC\ODBC.INI\ODBC Data Sources"
+    Set objRegistry = GetObject("winmgmts:\\" & strComputer & "\root\default:StdRegProv")
+    objRegistry.EnumValues HKEY_CURRENT_USER, strKeyPath, arrValueNames, arrValueTypes
+    GetODBCDSN = arrValueNames
+    For Each vName In arrValueNames
+    Debug.Print vName
+    Next
+End Function
+
+Function rndTriple(tblorSelect As String, fldName As String) As Collection
+'   =====================================================================
+'   Functie die meerdere unieke random numbers genereert en deze aan een
+'   verzameling toevoegd om te gebruiken
+'   Deze versie is gebaseerd op het gebruik van een tabel om een record
+'   te selecteren
+'   =====================================================================
+
+Dim rndM As Collection
+Dim Y As Long
+Dim i As Long
+Dim xS As Long, yS As Long, zS As Long
+Set db = CurrentDb()
+Set rs = db.OpenRecordset(tblorSelect)
+Set rndM = New Collection
+rs.MoveLast
+
+Y = rs.RecordCount
+
+xS = Round(Rnd(Y) * Y)
+
+rs.MoveFirst
+For i = 1 To xS
+rs.MoveNext
+Next i
+
+rndM.Add rs(fldName).Value
+
+yS = Round(Rnd(Y) * Y)
+Do While yS = xS
+    yS = Round(Rnd(Y) * Y)
+Loop
+
+rs.MoveFirst
+For i = 1 To yS
+rs.MoveNext
+Next i
+
+rndM.Add rs(fldName).Value
+
+zS = Round(Rnd(Y) * Y)
+Do While zS = xS Or zS = yS
+    zS = Round(Rnd(Y) * Y)
+Loop
+
+rs.MoveFirst
+For i = 1 To zS
+rs.MoveNext
+Next i
+rndM.Add rs(fldName).Value
+
+Set rndTriple = rndM
+
+End Function
+
+Public Function lastNonNumber(strInput As String) As Integer
+'   =====================================================================
+'   Gelijke werking als de functie FirstNonNumber. Gebruik om de postie
+'   van het laatste niet numerieke karakter in een string te bepalen
+'   =====================================================================
+    Dim i As Integer
+    
+'   Initial value, in case the user passes a Null, empty string,
+'   or all-number string
+    lastNonNumber = 0
+    strInput = StrReverse(strInput)
+'   Don't check an empty string or Null value
+    If Len(strInput & "") > 0 Then
+'       Loop through all characters in the string
+        For i = 1 To Len(strInput)
+'           If it's not a number...
+            If IsNumeric(Mid(strInput, i, 1)) = False Then
+'               ...Exit the loop and return the character
+                lastNonNumber = i
+                Exit For
+            End If
+        Next i
+        If lastNonNumber = 0 Then lastNonNumber = i
+    End If
+End Function
+
+Public Function firstNonNumber(strInput As String) As Integer
+'   =====================================================================
+'   Gelijke werking als de functie LastNonNumber. Gebruik om de postie
+'   van het eerste niet numerieke karakter in een string te bepalen
+'   =====================================================================
+    Dim i As Integer
+    
+'   Initial value, in case the user passes a Null, empty string,
+'   or all-number string
+    firstNonNumber = 0
+    
+'   Don't check an empty string or Null value
+    If Len(strInput & "") > 0 Then
+'       Loop through all characters in the string
+        For i = 1 To Len(strInput)
+'           If it's not a number...
+            If IsNumeric(Mid(strInput, i, 1)) = False Then
+'               ...Exit the loop and return the character
+                firstNonNumber = i
+                Exit For
+            End If
+        Next i
+        If firstNonNumber = 0 Then firstNonNumber = i
+    End If
+End Function
+
+Public Function getHuisnummer(strInput As String) As Long
+'   =====================================================================
+'   Splitsen van een reeks nummeriek en niet numerieke karakters om een
+'   huisnummer te bepalen als er ook een toevoeging in het veld is
+'   =====================================================================
+getHuisnummer = Left(strInput, firstNonNumber(strInput) - 1)
+
+End Function
+
+Public Function getToevoeging(strInput As String) As String
+'   =====================================================================
+'   Splitsen van een reeks nummeriek en niet numerieke karakters om een
+'   toevoeging te bepalen in een samengesteld huisnummer veld
+'   =====================================================================
+getToevoeging = Mid(strInput, firstNonNumber(strInput), Len(fldName))
+
+End Function
+
+Public Function sortList(list() As String, ByVal min As Long, ByVal max As Long)
+'   =====================================================================
+'   functie om een lijst te sorteren op volgorde van laag naar hoog
+'   =====================================================================
+Dim mid_value As String
+Dim hi As Long
+Dim lo As Long
+Dim i As Long
+
+ ' If there is 0 or 1 item in the list,
+    ' this sublist is sorted.
+    If min >= max Then Exit Function
+
+    ' Pick a dividing value.
+    i = Int((max - min + 1) * Rnd + min)
+    mid_value = list(i)
+
+    ' Swap the dividing value to the front.
+    list(i) = list(min)
+
+    lo = min
+    hi = max
+    Do
+        ' Look down from hi for a value < mid_value.
+        Do While list(hi) >= mid_value
+            hi = hi - 1
+            If hi <= lo Then Exit Do
+        Loop
+        If hi <= lo Then
+            list(lo) = mid_value
+            Exit Do
+        End If
+
+        ' Swap the lo and hi values.
+        list(lo) = list(hi)
+
+        ' Look up from lo for a value >= mid_value.
+        lo = lo + 1
+        Do While list(lo) < mid_value
+            lo = lo + 1
+            If lo >= hi Then Exit Do
+        Loop
+        If lo >= hi Then
+            lo = hi
+            list(hi) = mid_value
+            Exit Do
+        End If
+
+        ' Swap the lo and hi values.
+        list(hi) = list(lo)
+    Loop
+
+    ' Sort the two sublists.
+    Call sortList(list, min, lo - 1)
+    Call sortList(list, lo + 1, max)
+
+End Function
+
+Sub playSound(ByVal whatSound As String, Optional Flags As Long = 0)
+    If Dir(whatSound, vbNormal) = "" Then
+        ' WhatSound is not a file. Get the file named by
+        ' WhatSound from the Windows\Media directory.
+        whatSound = Environ("SystemRoot") & "\Media\" & whatSound
+        If InStr(1, whatSound, ".") = 0 Then
+            ' if WhatSound does not have a .wav extension,
+            ' add one.
+            whatSound = whatSound & ".wav"
+        End If
+        If Dir(whatSound, vbNormal) = vbNullString Then
+            ' Can't find the file. Do a simple Beep.
+            Beep
+            Exit Sub
+        End If
+    Else
+        ' WhatSound is a file. Use it.
+    End If
+    ' Finally, play the sound.
+    sndPlaySound32 whatSound, Flags
+End Sub
+
+Sub loopTimer()
+
+Dim startTime, waitTime, loopTime
+
+Dim n As Integer '  set n to limit the maximum number of loops
+
+n = 10
+waitTime = 10   ' waittime in seconds between code execution
+startTime = Round(Timer, 0)
+loopTime = Round(Timer, 0)
+Do While Round(Timer, 0) <= loopTime + waitTime
+    If Round(Timer, 0) = loopTime + waitTime Then
+        DoEvents    ' to allow breaks in the code if accidental infinite loop is enabled
+        Debug.Print Timer
+        '   play sounds or do some code here
+        '
+        loopTime = Round(Timer, 0)
+        If Timer > startTime + n * waitTime Then Exit Do '     loop limiter, adjust variable n to set number of loops
+    End If
+Loop
+    
+End Sub

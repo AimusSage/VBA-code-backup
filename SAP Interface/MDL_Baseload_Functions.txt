@@ -1,0 +1,52 @@
+Attribute VB_Name = "MDL_Baseload_Functions"
+Option Explicit
+
+Public Sub RefreshData()
+    RefreshBW
+    ThisWorkbook.RefreshAll
+End Sub
+
+Public Sub RefreshBW()
+    Dim sPath As String
+    Dim sFile As String
+    Dim fso As FileSystemObject
+    Set fso = New FileSystemObject
+    
+    sPath = ThisWorkbook.Path & "\bronnen"
+    
+    If (fso.FolderExists(sPath) = False) Then
+        MsgBox "In het pad waar dit Excel werkboek staat moet een map bestaan met de naam 'Bronnen' waar BW-bronbestanden staan.", vbExclamation + vbOKOnly, "Verversen van bronbestanden mislukt"
+    Else
+        sFile = Dir(sPath & "\*.xlsx")
+        Do While sFile <> ""
+            RefreshBWFile sPath, sFile
+            Application.StatusBar = "Bestand " & sFile & " is bijgewerkt."
+            sFile = Dir
+        Loop
+    End If
+    Application.StatusBar = ""
+End Sub
+
+Public Sub RefreshBWFile(sPath As String, sFile As String)
+    Dim BW_wb As Excel.Workbook
+    
+    'Opstarten BW omgeving
+    If MDL_SAPBW_Functions.Init_AO_API() = False Then
+        'fout: Invoegtoepassing wil niet openen
+    Else
+        Set BW_wb = Workbooks.Open(sPath & "\" & sFile)
+        'Refresh
+        If MDL_SAPBW_Functions.Logon_SAP = False Then
+            'fout: aanmelden mislukt
+        End If
+        If (MDL_SAPBW_Functions.RefreshQueries = False) Then
+            'fout: verversen data mislukt
+        Else
+            'alles gelukt:
+            BW_wb.Close True
+            Set BW_wb = Nothing
+        End If
+    End If
+End Sub
+
+
